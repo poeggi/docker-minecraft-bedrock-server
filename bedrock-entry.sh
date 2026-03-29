@@ -301,7 +301,9 @@ if [[ -n "${MC_PACK:-}" ]]; then
         [[ -f "$srcDir/data/manifest.json" || -f "$srcDir/resources/manifest.json" ]]; then
         for subdir in data resources; do
             packManifestFile="$srcDir/$subdir/manifest.json"
-            [[ -f "$packManifestFile" ]] || continue
+            if [[ ! -f "$packManifestFile" ]]; then
+              continue;
+            fi
 
             packId=$(jq -r '.header.uuid' "$packManifestFile")
             destName="behavior_packs"; [[ "$subdir" == "resources" ]] && destName="resource_packs"
@@ -313,6 +315,31 @@ if [[ -n "${MC_PACK:-}" ]]; then
             mv "$srcDir/$subdir" "$srcDir/$destName/$packId"
             echo "$worldPacksJson" > "$worldPacksFile" && echo "Generated $worldPacksFile as $worldPacksJson"
         done
+    fi
+    if [[ -d "$srcDir/addon" ]]; then
+      for addonSub in "$srcDir/addon"/*; do
+        packManifestFile="$addonSub/manifest.json"
+        if [[ ! -f "$packManifestFile" ]]; then
+          logWarn "addon/$(basename "$addonSub"): manifest.json not found; skipping";
+          continue;
+        fi
+        packId=$(jq -r '.header.uuid' "$packManifestFile")
+        packKind=$(jq -r '
+          [ .modules[]?.type ] as $types
+          | if ($types | any(IN("data","script"))) then "behavior_packs"
+            elif ($types | any(. == "resources")) then "resource_packs"
+            else empty
+            end
+        ' "$packManifestFile")
+        if [[ -z "$packId" || "$packId" == "null" || -z "$packKind" ]]; then
+          logWarn "addon/$(basename "$addonSub"): unsupported manifest modules; skipping";
+          continue;
+        fi
+        dest="$srcDir/$packKind/$packId"
+        [[ -d "$dest" ]] && rm -rf "$dest"
+        mkdir -p "$srcDir/$packKind" && mv "$addonSub" "$dest" && echo "Moved addon $(basename "$addonSub") to $packKind/$packId"
+      done
+      rm -rf "$srcDir/addon"
     fi
     for dir in behavior_packs resource_packs; do
       if [[ -d "$srcDir/$dir" ]]; then
@@ -336,7 +363,9 @@ if [[ -n "${MC_PACK:-}" ]]; then
         fi
         for item in "$srcDir"/*; do
           name=$(basename "$item")
-          [[ "$name" == "behavior_packs" || "$name" == "resource_packs" ]] && continue
+          if [[ "$name" == "behavior_packs" || "$name" == "resource_packs" || "$name" == "addon" ]]; then
+            continue;
+          fi
           mkdir -p "$levelDir"
           echo "Copying world item $name to $levelDir"
           cp -a "$item" "$levelDir/"
