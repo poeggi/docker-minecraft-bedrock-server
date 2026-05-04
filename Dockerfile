@@ -53,6 +53,14 @@ COPY *.sh /opt/
 COPY property-definitions.json /etc/bds-property-definitions.json
 COPY bin/* /usr/local/bin/
 
+RUN case "$TARGETARCH" in \
+      amd64) _arch=x86_64 ;; \
+      arm64) _arch=aarch64 ;; \
+      *) echo "[bds-ipv6fix] unsupported arch $TARGETARCH, ENABLE_BDS_V6BIND_FIX will have no effect" >&2; exit 0 ;; \
+    esac && \
+    curl -fsSL "https://github.com/poeggi/bds-ipv6fix/releases/latest/download/bds-ipv6fix_linux_${_arch}.so" \
+    -o /opt/bds-ipv6fix.so
+
 # Available versions listed at
 # https://minecraft.wiki/w/Bedrock_Edition_1.11.0
 # https://minecraft.wiki/w/Bedrock_Edition_1.12.0
@@ -60,7 +68,8 @@ COPY bin/* /usr/local/bin/
 # https://minecraft.wiki/w/Bedrock_Edition_1.14.0
 ENV VERSION=LATEST \
     SERVER_PORT=19132 \
-    SERVER_PORT_V6=19133
+    SERVER_PORT_V6=19133 \
+    ENABLE_BDS_V6BIND_FIX=false
 
 HEALTHCHECK --start-period=1m CMD /usr/local/bin/mc-monitor status-bedrock --host 127.0.0.1 --port $SERVER_PORT
 

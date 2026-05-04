@@ -13,13 +13,11 @@ exposing the default IPv4 UDP port:
 docker run -d -it -e EULA=TRUE -p 19132:19132/udp -v mc-bedrock-data:/data itzg/minecraft-bedrock-server
 ```
 
-If your network is dual-stack (IPv4 and IPv6), also map the IPv6 port:
-
-```bash
--p 19132:19132/udp -p 19133:19133/udp
-```
-
 > **NOTE**: if you plan on running a server for a longer amount of time it is highly recommended using a management layer such as [Docker Compose](#deploying-with-docker-compose) or [Kubernetes](#deploying-with-kubernetes) to allow for incremental reconfiguration and image upgrades.
+
+If your network is dual-stack (IPv4 and IPv6), also map the IPv6 port: `-p 19132:19132/udp -p 19133:19133/udp`
+
+Alternatively, enable `ENABLE_BDS_V6BIND_FIX=true` to serve both from the same port number - see [IPv6 same-port fix](#ipv6-same-port-fix).
 
 ## Upgrading to the latest Bedrock server version
 
@@ -72,6 +70,7 @@ For Minecraft Java Edition you'll need to use this image instead:
 - `DIRECT_DOWNLOAD_URL` (no default): This environment variable can be used to provide a **direct download URL** for the Minecraft Bedrock server `.zip` file. When set, this URL will be used instead of attempting to automatically look up the download link from `minecraft.net`. This is particularly useful for CI/CD environments or when the automatic version lookup is temporarily broken due to website changes. Ensure the URL points directly to the `bedrock-server-VERSION.zip` file.
 - `DOWNLOAD_PROGRESS` (default is `false`) : When set to `true`, displays a progress bar during the Bedrock server download instead of running silently.
 - `ENABLE_SSH` (default is `false`) : Enable remote console over SSH on port 2222 if this environment variable is set to `true`.
+- `ENABLE_BDS_V6BIND_FIX` (default is `false`) : allows `SERVER_PORT` and `SERVER_PORT_V6` to be set to the same port. See [IPv6 same-port fix](#ipv6-same-port-fix). Enabling it should mitigate connectivity issues in dual-stack setups.
 - `MC_PACK` (no default): Path inside the container to a single archive file (e.g. `.mcpack`, `.mcworld`, `.mctemplate`, `.mcaddon`, or any zip) or to a directory with the same layout. At startup the archive is unpacked (or the directory is read): top-level `behavior_packs/` is merged into `behavior_packs/`, top-level `resource_packs/` into `resource_packs/`, and all other content (when `level.dat` is present) into `worlds/{LEVEL_NAME}`. For `.mcaddon` archives, which use root-level `data/` (behavior) and `resources/` (resource) folders instead of `behavior_packs/` and `resource_packs/`, these are detected and installed automatically using the pack UUID from each manifest as the folder name.
 - `FORCE_WORLD_COPY` (default `false`): When `MC_PACK` contains a world (`level.dat`), set to `true` to remove and replace the existing `worlds/{LEVEL_NAME}` on every startup; otherwise the world is copied only when it does not exist.
 - `FORCE_PACK_COPY` (default `false`): When `MC_PACK` contains `behavior_packs/` or `resource_packs/`, set to `true` to remove and replace existing pack folders with the same name on every startup; otherwise each pack is copied only when it does not already exist.
@@ -155,9 +154,33 @@ docker run -d -it --name bds-flat-creative \
 ## Exposed Ports
 
 - **UDP** 19132 : the Bedrock server port for IPv4 clients, set by `SERVER_PORT`
-- **UDP** 19133 : the Bedrock server port for IPv6 clients, set by `SERVER_PORT_V6`
+- **UDP** 19133 : the default Bedrock server port for IPv6 clients, set by `SERVER_PORT_V6`
 
-**NOTE** that you must append `/udp` when exposing the ports, such as `-p 19132:19132/udp -p 19133:19133/udp`.
+> **NOTE**: with `ENABLE_BDS_V6BIND_FIX=true`, both ports can be set to the same value (e.g. 19132), exposing the same port number for both address families - this is recommended for dual-stack environments to avoid connectivity problems.
+
+## IPv6 same-port fix
+
+BDS binds IPv4 and IPv6 on separate ports by default (19132 and 19133).
+Bedrock clients do not implement Happy Eyeballs, so a player whose device
+resolves the hostname to IPv6 connects to port 19132 over IPv6 and times out
+-- the server only accepts IPv6 on 19133. Set `ENABLE_BDS_V6BIND_FIX=true`
+to enable a runtime shim ([bds-ipv6fix](https://github.com/poeggi/bds-ipv6fix))
+that patches BDS to allow both address families on the same port number, then
+set both properties to the same value:
+
+```yaml
+environment:
+  EULA: "TRUE"
+  ENABLE_BDS_V6BIND_FIX: "true"
+  SERVER_PORT: 19132
+  SERVER_PORT_V6: 19132
+ports:
+  - "19132:19132/udp"
+```
+
+> **NOTE**: `SERVER_PORT_V6` equal to `SERVER_PORT` requires `ENABLE_BDS_V6BIND_FIX=true`;
+> without it BDS will crash. Always set the IPv6 port via `SERVER_PORT_V6`,
+> do not set ports via `server.properties`.
 
 ## Volumes
 
